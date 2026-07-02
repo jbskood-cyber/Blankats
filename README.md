@@ -1,29 +1,20 @@
-# BlankATS
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-MVP para subir un CV, analizarlo con IA y generar una version mejorada en PDF.
+# Run and deploy your AI Studio app
 
-## Objetivo V1
+This contains everything you need to run your app locally.
 
-1. Subir CV en PDF.
-2. Extraer contenido.
-3. Mejorar estructura y redaccion con IA.
-4. Generar una version profesional.
-5. Descargar PDF.
+View your app in AI Studio: https://ai.studio/apps/0399a7c6-7db6-4e95-91d5-a17053cf9cd0
 
-## Marca
+## Run Locally
 
-Usar siempre la marca oficial BlankATS: documento con flecha azul y wordmark BlankATS.
+**Prerequisites:**  Node.js
 
-## Estilo visual
 
-- Mobile first.
-- Interfaz limpia y premium.
-- Tipografia cuidada.
-- Jerarquia clara de texto.
-- Botones grandes.
-- Tarjetas redondeadas.
-- Fondo blanco con acento azul.
-
-## Documentacion
-
-La direccion del proyecto vive en Google Drive y el registro tecnico vive en la carpeta docs de este repositorio.
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`
