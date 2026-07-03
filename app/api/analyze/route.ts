@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       2. Si falta información en los datos originales, no te la inventes. Usa únicamente lo disponible.
       3. Puedes mejorar la redacción, claridad, orden y estructura del texto. Convierte frases débiles en oraciones con verbos de acción fuertes y lenguaje profesional (ej. "Encargado de archivar" -> "Optimicé el sistema de archivado y organización documental").
       4. Si sugieres métricas o logros cuantitativos, hazlo explícitamente indicando que es una sugerencia o plantilla (ej. "[Sugerencia: agregar % de incremento o cantidad lograda]"). No inventes números reales.
-      5. La estructura del CV optimizado debe ser limpia, en una sola columna, simple y 100% compatible con lectores ATS (Applicant Tracking Systems).
+      5. La estructura del CV optimizado debe ser limpia, en una sola columna, simple y facil de revisar por lectores ATS (Applicant Tracking Systems).
       6. Toda la salida debe estructurarse según el esquema JSON solicitado. El idioma del CV mejorado y el diagnóstico debe coincidir con el idioma del CV original (si el original está en español, responde en español).
       
       Genera el diagnóstico breve (puntuación del 1 al 100, lista de problemas detectados, secciones cruciales faltantes, y recomendaciones principales) junto con el CV optimizado con las siguientes secciones:
