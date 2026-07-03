@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import Image from "next/image";
+import { ChangeEvent, DragEvent, ReactNode, useMemo, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import {
-  Upload,
-  FileText,
-  CheckCircle,
   AlertCircle,
   ArrowRight,
+  CheckCircle2,
   Download,
-  Sparkles,
+  FileCheck2,
+  FileText,
+  FileUp,
+  Loader2,
   RefreshCw,
-  FileWarning,
-  PlusCircle,
-  Info
+  ShieldCheck,
+  Sparkles,
+  TextCursorInput,
+  WandSparkles,
 } from "lucide-react";
 
 interface ImprovedCV {
@@ -53,111 +56,103 @@ interface AnalysisResponse {
 }
 
 function sanitizeImprovedCV(cv: any): ImprovedCV {
-  if (!cv) {
-    return {
-      name: "",
-      title: "",
-      contact: "",
-      summary: "",
-      experience: [],
-      education: [],
-      skills: [],
-    };
-  }
+  const forbiddenPatterns = [
+    /\[[^\]]*sugerencia[^\]]*\]/gi,
+    /\[[^\]]*agregar[^\]]*\]/gi,
+    /\[[^\]]*anadir[^\]]*\]/gi,
+    /\[[^\]]*a\u00f1adir[^\]]*\]/gi,
+    /pendiente/gi,
+    /N\/A/gi,
+  ];
 
-  const cleanText = (text: string | undefined): string => {
-    if (!text) return "";
-    let t = text;
-    // Remove any text in square brackets [Sugerencia...] or similar
-    t = t.replace(/\[[^\]]*\]/g, "");
-    // Remove common placeholders
-    t = t.replace(/pendiente/gi, "");
-    t = t.replace(/agregar aquí/gi, "");
-    t = t.replace(/\bn\/a\b/gi, "");
-    t = t.replace(/placeholder/gi, "");
-    // Clean up multiple spaces and clean trailing/leading spaces
-    t = t.replace(/\s\s+/g, " ").trim();
-    return t;
+  const cleanText = (value: unknown): string => {
+    let text = String(value ?? "").trim();
+    forbiddenPatterns.forEach((pattern) => {
+      text = text.replace(pattern, "");
+    });
+    return text.replace(/\s+/g, " ").trim();
   };
 
-  const sanitizeBullets = (bullets: any[] | undefined, descriptionFallback: string | undefined): string[] => {
+  const sanitizeBullets = (
+    bullets: unknown,
+    descriptionFallback?: string,
+  ): string[] => {
     let rawList: string[] = [];
+
     if (Array.isArray(bullets) && bullets.length > 0) {
-      rawList = bullets.map(b => String(b));
+      rawList = bullets.map((bullet) => String(bullet));
     } else if (descriptionFallback) {
-      // Convert description string to bullets
-      let cleaned = descriptionFallback
-        .replace(/\.-/g, "\n")
-        .replace(/ • /g, "\n")
-        .replace(/ \s*-\s* /g, "\n")
-        .replace(/•/g, "\n");
-      rawList = cleaned.split("\n");
+      rawList = descriptionFallback
+        .split(/\n|(?:\s[-*]\s)|(?:\.\s(?=[A-ZÁÉÍÓÚÑ]))/)
+        .map((line) => line.replace(/^[-*]\s?/, ""));
     }
 
     return rawList
-      .map(line => {
-        let l = line.trim();
-        // Remove brackets and suggestions from bullet
-        l = l.replace(/\[[^\]]*\]/g, "");
-        l = l.replace(/pendiente/gi, "");
-        l = l.replace(/agregar aquí/gi, "");
-        l = l.replace(/\bn\/a\b/gi, "");
-        l = l.replace(/placeholder/gi, "");
-        // Remove leading dashes/bullets
-        if (l.startsWith("-") || l.startsWith("•") || l.startsWith("*") || l.startsWith(".")) {
-          l = l.substring(1).trim();
-        }
-        return l.trim();
-      })
-      .filter(line => line.length > 0);
+      .map(cleanText)
+      .filter(Boolean)
+      .filter((bullet) => bullet.length > 2);
   };
 
-  const cleanExperience = Array.isArray(cv.experience)
-    ? cv.experience.map((exp: any) => ({
-        company: cleanText(exp.company),
-        role: cleanText(exp.role),
-        period: cleanText(exp.period),
-        bullets: sanitizeBullets(exp.bullets, exp.description),
+  const experience = Array.isArray(cv?.experience)
+    ? cv.experience.map((item: any) => ({
+        company: cleanText(item.company),
+        role: cleanText(item.role),
+        period: cleanText(item.period),
+        bullets: sanitizeBullets(item.bullets, item.description),
       }))
     : [];
 
-  const cleanEducation = Array.isArray(cv.education)
-    ? cv.education.map((edu: any) => ({
-        institution: cleanText(edu.institution),
-        degree: cleanText(edu.degree),
-        period: cleanText(edu.period),
-        description: edu.description ? cleanText(edu.description) : undefined,
+  const education = Array.isArray(cv?.education)
+    ? cv.education.map((item: any) => ({
+        institution: cleanText(item.institution),
+        degree: cleanText(item.degree),
+        period: cleanText(item.period),
+        description: item.description ? cleanText(item.description) : undefined,
       }))
     : [];
 
-  const cleanProjects = Array.isArray(cv.projects)
-    ? cv.projects.map((proj: any) => ({
-        name: cleanText(proj.name),
-        period: proj.period ? cleanText(proj.period) : undefined,
-        bullets: sanitizeBullets(proj.bullets, proj.description),
+  const skills = Array.isArray(cv?.skills)
+    ? cv.skills.map(cleanText).filter(Boolean)
+    : [];
+
+  const projects = Array.isArray(cv?.projects)
+    ? cv.projects.map((item: any) => ({
+        name: cleanText(item.name),
+        bullets: sanitizeBullets(item.bullets, item.description),
+        period: item.period ? cleanText(item.period) : undefined,
       }))
     : [];
 
-  const cleanSkills = Array.isArray(cv.skills)
-    ? cv.skills.map((s: any) => cleanText(String(s))).filter((s: string) => s.length > 0)
-    : [];
-
-  const cleanCertifications = Array.isArray(cv.certifications)
-    ? cv.certifications.map((c: any) => cleanText(String(c))).filter((c: string) => c.length > 0)
-    : [];
+  const certifications = Array.isArray(cv?.certifications)
+    ? cv.certifications.map(cleanText).filter(Boolean)
+    : undefined;
 
   return {
-    name: cleanText(cv.name),
-    title: cleanText(cv.title),
-    contact: cleanText(cv.contact),
-    summary: cleanText(cv.summary),
-    experience: cleanExperience,
-    education: cleanEducation,
-    skills: cleanSkills,
-    projects: cleanProjects.length > 0 ? cleanProjects : undefined,
-    certifications: cleanCertifications.length > 0 ? cleanCertifications : undefined,
+    name: cleanText(cv?.name),
+    title: cleanText(cv?.title),
+    contact: cleanText(cv?.contact),
+    summary: cleanText(cv?.summary),
+    experience,
+    education,
+    skills,
+    projects: projects.length > 0 ? projects : undefined,
+    certifications,
   };
 }
+
+const loadingSteps = [
+  "Leyendo el contenido original",
+  "Revisando estructura y secciones",
+  "Evaluando claridad y redaccion",
+  "Preparando recomendaciones",
+  "Construyendo una version mas limpia",
+];
+
+const safeHighlights = [
+  "Estructura mas clara",
+  "Presentacion profesional",
+  "Lista para procesos digitales",
+];
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -169,66 +164,65 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResponse | null>(null);
 
-  // File drag & drop handlers
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
+  const canAnalyze = useMemo(
+    () => Boolean(file || pastedText.trim()),
+    [file, pastedText],
+  );
+
+  const handleDrag = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(event.type === "dragenter" || event.type === "dragover");
   };
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile.type === "application/pdf") {
-        setFile(droppedFile);
-        setError(null);
-      } else {
-        setError("Por favor, sube únicamente archivos en formato PDF.");
-      }
+    const droppedFile = event.dataTransfer.files?.[0];
+    if (droppedFile) {
+      acceptFile(droppedFile);
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const selectedFile = e.target.files[0];
-      if (selectedFile.type === "application/pdf") {
-        setFile(selectedFile);
-        setError(null);
-      } else {
-        setError("Por favor, sube únicamente archivos en formato PDF.");
-      }
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) {
+      acceptFile(selectedFile);
     }
   };
 
-  // Convert PDF file to Base64
-  const fileToBase64 = (file: File): Promise<string> => {
+  const acceptFile = (selectedFile: File) => {
+    if (selectedFile.type !== "application/pdf") {
+      setError("Sube un archivo PDF para mantener el analisis en el formato correcto.");
+      return;
+    }
+
+    setFile(selectedFile);
+    setUseTextMode(false);
+    setError(null);
+  };
+
+  const fileToBase64 = (selectedFile: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         const arrayBuffer = reader.result as ArrayBuffer;
         const bytes = new Uint8Array(arrayBuffer);
         let binary = "";
-        for (let i = 0; i < bytes.length; i++) {
+        for (let i = 0; i < bytes.length; i += 1) {
           binary += String.fromCharCode(bytes[i]);
         }
         resolve(btoa(binary));
       };
-      reader.onerror = (error) => reject(error);
-      reader.readAsArrayBuffer(file);
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(selectedFile);
     });
   };
 
-  // Start analysis
   const handleAnalyze = async () => {
-    if (!file && !pastedText.trim()) {
-      setError("Por favor, sube un archivo PDF o ingresa el texto de tu CV.");
+    if (!canAnalyze) {
+      setError("Sube tu CV en PDF o pega el texto para iniciar el analisis.");
       return;
     }
 
@@ -236,64 +230,44 @@ export default function Home() {
     setError(null);
     setLoadingStep(0);
 
-    // Dynamic loading text updates
-    const loadingIntervals = [
-      "Extrayendo contenido original...",
-      "Analizando estructura de secciones y formato ATS...",
-      "Evaluando claridad, redacción y verbos de acción...",
-      "Generando diagnóstico y optimizando redacción...",
-      "Compilando versión final mejorada..."
-    ];
-
-    const timer = setInterval(() => {
-      setLoadingStep((prev) => {
-        if (prev < loadingIntervals.length - 1) {
-          return prev + 1;
-        }
-        return prev;
-      });
-    }, 3000);
+    const timer = window.setInterval(() => {
+      setLoadingStep((step) => Math.min(step + 1, loadingSteps.length - 1));
+    }, 2400);
 
     try {
-      let base64Data = "";
-      if (file) {
-        base64Data = await fileToBase64(file);
-      }
-
+      const pdfBase64 = file ? await fileToBase64(file) : undefined;
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          pdfBase64: base64Data || undefined,
-          originalText: pastedText || undefined,
+          pdfBase64,
+          originalText: pastedText.trim() || undefined,
         }),
       });
 
       if (!response.ok) {
-        const errJson = await response.json();
-        throw new Error(errJson.error || "Ocurrió un error inesperado.");
+        const payload = (await response.json()) as { error?: string };
+        throw new Error(payload.error || "No se pudo analizar el CV.");
       }
 
-      const data: AnalysisResponse = await response.json();
-      if (data && data.improvedCV) {
-        data.improvedCV = sanitizeImprovedCV(data.improvedCV);
-      }
+      const data = (await response.json()) as AnalysisResponse;
+      data.improvedCV = sanitizeImprovedCV(data.improvedCV);
       setResult(data);
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "No se pudo completar el análisis del CV.");
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "No se pudo completar el analisis. Intenta de nuevo.";
+      setError(message);
     } finally {
-      clearInterval(timer);
+      window.clearInterval(timer);
       setIsLoading(false);
     }
   };
 
-  // Trigger dynamic PDF download using jsPDF client side
   const handleDownloadPDF = async () => {
     if (!result) return;
-    
+
     try {
       const { jsPDF } = await import("jspdf");
       const doc = new jsPDF("p", "pt", "a4");
@@ -301,307 +275,151 @@ export default function Home() {
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 50;
       const contentWidth = pageWidth - margin * 2;
-      let currentY = 50;
+      let currentY = 52;
 
-      // Color constants
-      const colorPrimary = [27, 54, 93]; // Deep corporate slate blue
-      const colorBody = [45, 55, 72];    // Off-black charcoal for readability
-      const colorMuted = [113, 128, 150]; // Soft gray for dates/metadata
+      const ensureSpace = (height: number) => {
+        if (currentY + height > pageHeight - margin) {
+          doc.addPage();
+          currentY = margin;
+        }
+      };
 
-      // Helper to add clean lines of text and auto-wrap / auto-page-break
-      const addText = (text: string, size: number, style: "normal" | "bold" | "italic" = "normal", spacing = 13.5) => {
+      const addText = (
+        text: string,
+        size: number,
+        style: "normal" | "bold" | "italic" = "normal",
+        spacing = 14,
+      ) => {
         doc.setFont("helvetica", style);
         doc.setFontSize(size);
-        doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-        
         const lines = doc.splitTextToSize(text, contentWidth);
-        const totalHeight = lines.length * spacing;
-        
-        if (currentY + totalHeight > pageHeight - margin) {
-          doc.addPage();
-          currentY = margin + 10;
-        }
-        
+        ensureSpace(lines.length * spacing);
         lines.forEach((line: string) => {
           doc.text(line, margin, currentY);
           currentY += spacing;
         });
       };
 
-      // Helper for elegant section headers with solid thin lines
-      const addSectionHeader = (title: string) => {
-        if (currentY + 32 > pageHeight - margin) {
-          doc.addPage();
-          currentY = margin + 10;
-        } else {
-          currentY += 15;
-        }
-        
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-        doc.text(title.toUpperCase(), margin, currentY);
-        currentY += 4;
-        
-        // Solid thin blue line below section header
-        doc.setDrawColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-        doc.setLineWidth(0.75);
+      const addSectionTitle = (title: string) => {
+        ensureSpace(34);
+        currentY += 9;
+        doc.setDrawColor(210, 214, 222);
         doc.line(margin, currentY, pageWidth - margin, currentY);
-        currentY += 12;
+        currentY += 18;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10.5);
+        doc.setTextColor(20, 24, 33);
+        doc.text(title.toUpperCase(), margin, currentY);
+        currentY += 17;
       };
 
       const cv = result.improvedCV;
 
-      // Name (Main Header)
+      doc.setTextColor(10, 15, 25);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
-      doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-      const nameText = cv.name.toUpperCase();
-      const nameLines = doc.splitTextToSize(nameText, contentWidth);
-      nameLines.forEach((line: string) => {
-        if (currentY + 24 > pageHeight - margin) {
-          doc.addPage();
-          currentY = margin + 10;
-        }
-        doc.text(line, margin, currentY);
-        currentY += 24;
-      });
+      doc.text(cv.name.toUpperCase(), margin, currentY);
+      currentY += 24;
 
-      // Title
       if (cv.title) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11.5);
-        doc.setTextColor(74, 85, 104);
-        const titleText = cv.title.toUpperCase();
-        const titleLines = doc.splitTextToSize(titleText, contentWidth);
-        titleLines.forEach((line: string) => {
-          if (currentY + 15 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-          doc.text(line, margin, currentY);
-          currentY += 14;
-        });
+        doc.setFontSize(11);
+        doc.setTextColor(52, 64, 84);
+        addText(cv.title.toUpperCase(), 11, "bold", 15);
       }
 
-      // Contact
       if (cv.contact) {
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(9.5);
-        doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-        const contactLines = doc.splitTextToSize(cv.contact, contentWidth);
-        contactLines.forEach((line: string) => {
-          if (currentY + 13 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-          doc.text(line, margin, currentY);
-          currentY += 12;
-        });
+        doc.setTextColor(80, 89, 105);
+        addText(cv.contact, 9, "normal", 13);
       }
 
-      currentY += 5;
-
-      // Professional Summary
       if (cv.summary) {
-        addSectionHeader("RESUMEN PROFESIONAL");
+        addSectionTitle("Resumen profesional");
+        doc.setTextColor(43, 50, 64);
         addText(cv.summary, 9.5, "normal", 13.5);
       }
 
-      // Work Experience
-      if (cv.experience && cv.experience.length > 0) {
-        addSectionHeader("EXPERIENCIA LABORAL");
-
-        cv.experience.forEach((exp) => {
-          if (currentY + 25 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-
-          // Header: Role & Company
+      if (cv.experience?.length) {
+        addSectionTitle("Experiencia laboral");
+        cv.experience.forEach((item) => {
+          ensureSpace(40);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
-          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-          doc.text(exp.role, margin, currentY);
-
-          // Calculate company position
-          const roleWidth = doc.getTextWidth(exp.role);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(74, 85, 104);
-          doc.text(` — ${exp.company}`, margin + roleWidth, currentY);
-
-          // Period (aligned right)
+          doc.setTextColor(12, 17, 29);
+          doc.text(`${item.role} - ${item.company}`, margin, currentY);
           doc.setFont("helvetica", "italic");
           doc.setFontSize(9);
-          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-          const periodText = exp.period || "";
-          const periodWidth = doc.getTextWidth(periodText);
-          doc.text(periodText, pageWidth - margin - periodWidth, currentY);
+          doc.setTextColor(88, 96, 112);
+          doc.text(item.period || "", pageWidth - margin - doc.getTextWidth(item.period || ""), currentY);
           currentY += 14;
 
-          // Render bullets
-          const bullets = exp.bullets || [];
-          bullets.forEach((bullet) => {
-            let cleanBullet = bullet.trim();
-            if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
-              cleanBullet = cleanBullet.substring(1).trim();
-            }
-
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(9.5);
-            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-
-            const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
-            const bulletHeight = bulletLines.length * 13;
-            
-            if (currentY + bulletHeight > pageHeight - margin) {
-              doc.addPage();
-              currentY = margin + 10;
-            }
-
-            // Draw bullet character
-            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-            doc.text("•", margin + 8, currentY + 1.5);
-            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-
-            bulletLines.forEach((line: string) => {
-              doc.text(line, margin + 18, currentY);
-              currentY += 13;
+          item.bullets
+            .filter((line) => line.trim())
+            .forEach((line) => {
+              const cleanLine = line.trim();
+              const bulletLines = doc.splitTextToSize(cleanLine, contentWidth - 18);
+              ensureSpace(bulletLines.length * 12.5);
+              doc.setTextColor(55, 63, 78);
+              doc.text("-", margin + 8, currentY);
+              bulletLines.forEach((bulletLine: string) => {
+                doc.text(bulletLine, margin + 18, currentY);
+                currentY += 12.5;
+              });
             });
-          });
-          currentY += 4;
+          currentY += 7;
         });
       }
 
-      // Education
-      if (cv.education && cv.education.length > 0) {
-        addSectionHeader("EDUCACIÓN");
-
-        cv.education.forEach((edu) => {
-          if (currentY + 22 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-
-          // Header: Degree & Institution
+      if (cv.education?.length) {
+        addSectionTitle("Educacion");
+        cv.education.forEach((item) => {
+          ensureSpace(30);
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
-          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-          doc.text(edu.degree, margin, currentY);
-
-          const degreeWidth = doc.getTextWidth(edu.degree);
-          doc.setFont("helvetica", "normal");
-          doc.setTextColor(74, 85, 104);
-          doc.text(` — ${edu.institution}`, margin + degreeWidth, currentY);
-
-          // Period (aligned right)
+          doc.setTextColor(12, 17, 29);
+          doc.text(item.degree, margin, currentY);
           doc.setFont("helvetica", "italic");
           doc.setFontSize(9);
-          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-          const periodText = edu.period || "";
-          const periodWidth = doc.getTextWidth(periodText);
-          doc.text(periodText, pageWidth - margin - periodWidth, currentY);
-          currentY += 14;
-
-          if (edu.description) {
-            addText(edu.description, 9, "normal", 12.5);
-            currentY += 4;
-          }
-          currentY += 4;
-        });
-      }
-
-      // Skills
-      if (cv.skills && cv.skills.length > 0) {
-        addSectionHeader("HABILIDADES");
-        const skillsJoined = cv.skills.join("  •  ");
-        addText(skillsJoined, 9.5, "normal", 13.5);
-      }
-
-      // Projects
-      if (cv.projects && cv.projects.length > 0) {
-        addSectionHeader("PROYECTOS");
-
-        cv.projects.forEach((proj) => {
-          if (currentY + 22 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(10);
-          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
-          doc.text(proj.name, margin, currentY);
-
-          if (proj.period) {
-            doc.setFont("helvetica", "italic");
-            doc.setFontSize(9);
-            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-            const pWidth = doc.getTextWidth(proj.period);
-            doc.text(proj.period, pageWidth - margin - pWidth, currentY);
-          }
-          currentY += 14;
-
-          const bullets = proj.bullets || [];
-          bullets.forEach((bullet) => {
-            let cleanBullet = bullet.trim();
-            if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
-              cleanBullet = cleanBullet.substring(1).trim();
-            }
-
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(9.5);
-            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-
-            const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
-            const bulletHeight = bulletLines.length * 13;
-            
-            if (currentY + bulletHeight > pageHeight - margin) {
-              doc.addPage();
-              currentY = margin + 10;
-            }
-
-            // Draw bullet character
-            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-            doc.text("•", margin + 8, currentY + 1.5);
-            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-
-            bulletLines.forEach((line: string) => {
-              doc.text(line, margin + 18, currentY);
-              currentY += 13;
-            });
-          });
-          currentY += 4;
-        });
-      }
-
-      // Certifications
-      if (cv.certifications && cv.certifications.length > 0) {
-        addSectionHeader("CERTIFICACIONES");
-
-        cv.certifications.forEach((cert) => {
-          if (currentY + 14 > pageHeight - margin) {
-            doc.addPage();
-            currentY = margin + 10;
-          }
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9.5);
-          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-          
-          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
-          doc.text("•", margin + 8, currentY);
-          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
-          
-          doc.text(cert, margin + 18, currentY);
+          doc.setTextColor(88, 96, 112);
+          doc.text(item.period || "", pageWidth - margin - doc.getTextWidth(item.period || ""), currentY);
           currentY += 13;
+          addText(item.institution, 9, "normal", 12);
+          if (item.description) addText(item.description, 9, "italic", 12);
+          currentY += 4;
         });
       }
 
-      // Save PDF in browser
-      doc.save(`CV_Optimizado_${cv.name.replace(/\s+/g, "_")}.pdf`);
-    } catch (e) {
-      console.error("Error al descargar PDF:", e);
-      alert("Hubo un error al generar tu PDF. Por favor intenta de nuevo.");
+      if (cv.skills?.length) {
+        addSectionTitle("Habilidades");
+        addText(cv.skills.join(", "), 9, "normal", 13);
+      }
+
+      if (cv.projects?.length) {
+        addSectionTitle("Proyectos");
+        cv.projects.forEach((item) => {
+          doc.setTextColor(12, 17, 29);
+          addText(`${item.name}${item.period ? ` - ${item.period}` : ""}`, 10, "bold", 13);
+          item.bullets.forEach((line) => {
+            const bulletLines = doc.splitTextToSize(line, contentWidth - 18);
+            ensureSpace(bulletLines.length * 12.5);
+            doc.setTextColor(55, 63, 78);
+            doc.text("-", margin + 8, currentY);
+            bulletLines.forEach((bulletLine: string) => {
+              doc.text(bulletLine, margin + 18, currentY);
+              currentY += 12.5;
+            });
+          });
+          currentY += 4;
+        });
+      }
+
+      if (cv.certifications?.length) {
+        addSectionTitle("Certificaciones");
+        cv.certifications.forEach((item) => addText(`- ${item}`, 9, "normal", 12.5));
+      }
+
+      doc.save(`CV_BlankATS_${cv.name.replace(/\s+/g, "_")}.pdf`);
+    } catch {
+      window.alert("Hubo un error al generar el PDF. Intenta de nuevo.");
     }
   };
 
@@ -610,637 +428,628 @@ export default function Home() {
     setPastedText("");
     setResult(null);
     setError(null);
+    setUseTextMode(false);
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-blue-100 selection:text-blue-900">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-md border-b border-slate-100 px-4 py-3 md:px-8">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {/* Logo */}
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="transform transition-transform hover:scale-110"
-              >
-                <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                <polyline points="14 2 14 8 20 8" />
-                <path d="M10 13l3 3-3 3" />
-                <line x1="8" y1="16" x2="13" y2="16" />
-              </svg>
-            </div>
-            <div>
-              <span className="font-bold text-xl tracking-tight text-slate-900">
-                Blank<span className="text-blue-600">ATS</span>
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded-md hidden sm:inline-block">
-              v1.0 (Demo ATS)
-            </span>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Container */}
-      <main className="max-w-7xl mx-auto px-4 py-8 md:py-12">
+    <div className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,#eaf3ff_0,#f8fafc_34rem,#ffffff_70rem)] text-slate-950">
+      <AppHeader />
+      <main className="mx-auto flex w-full max-w-7xl flex-col px-4 pb-12 pt-6 sm:px-6 lg:px-8">
         <AnimatePresence mode="wait">
           {!result ? (
-            /* STAGE 1: UPLOAD / INPUT FORM */
-            <motion.div
-              key="input-stage"
-              initial={{ opacity: 0, y: 15 }}
+            <motion.section
+              key="intake"
+              initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -15 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-2xl mx-auto"
+              exit={{ opacity: 0, y: -18 }}
+              transition={{ duration: 0.34, ease: "easeOut" }}
+              className="grid gap-8 lg:grid-cols-[0.88fr_1.12fr] lg:items-start"
             >
-              <div className="text-center mb-8 md:mb-12">
-                <motion.div
-                  initial={{ scale: 0.9 }}
-                  animate={{ scale: 1 }}
-                  transition={{ delay: 0.1, duration: 0.3 }}
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-600 text-xs font-medium mb-4"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  Optimización Inteligente para Filtros ATS
-                </motion.div>
-                <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">
-                  Mejora tu CV antes de enviarlo
-                </h1>
-                <p className="text-base md:text-lg text-slate-600 max-w-lg mx-auto">
-                  Sube tu CV en PDF y genera una versión más clara, profesional y lista para superar cualquier sistema de reclutamiento.
-                </p>
-              </div>
-
-              {/* Selector de modo: Archivo PDF vs Texto Pegado */}
-              <div className="flex bg-slate-150 p-1 rounded-xl mb-6 max-w-sm mx-auto border border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => { setUseTextMode(false); setError(null); }}
-                  className={`flex-1 py-2 text-xs md:text-sm font-medium rounded-lg transition-all ${
-                    !useTextMode
-                      ? "bg-white text-blue-600 shadow-sm border border-slate-200/50"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Sube archivo PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setUseTextMode(true); setError(null); }}
-                  className={`flex-1 py-2 text-xs md:text-sm font-medium rounded-lg transition-all ${
-                    useTextMode
-                      ? "bg-white text-blue-600 shadow-sm border border-slate-200/50"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  Pegar texto del CV
-                </button>
-              </div>
-
-              {/* Area de Carga o Pegado */}
-              <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-slate-200/60 mb-6">
-                {!useTextMode ? (
-                  /* PDF File Dropzone */
-                  <div
-                    onDragEnter={handleDrag}
-                    onDragOver={handleDrag}
-                    onDragLeave={handleDrag}
-                    onDrop={handleDrop}
-                    className={`relative border-2 border-dashed rounded-xl p-8 md:p-12 text-center transition-all ${
-                      dragActive
-                        ? "border-blue-500 bg-blue-50/50"
-                        : file
-                        ? "border-emerald-400 bg-emerald-50/10"
-                        : "border-slate-200 hover:border-slate-300"
-                    }`}
-                  >
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      id="cv-upload-input"
-                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                      onChange={handleFileChange}
-                      disabled={isLoading}
-                    />
-
-                    <div className="flex flex-col items-center justify-center">
-                      <div className={`p-4 rounded-full mb-4 ${file ? "bg-emerald-50 text-emerald-600" : "bg-slate-50 text-slate-400"}`}>
-                        <Upload className="w-8 h-8" />
-                      </div>
-
-                      {file ? (
-                        <div>
-                          <p className="text-base font-semibold text-slate-800 break-all px-4">
-                            {file.name}
-                          </p>
-                          <p className="text-xs text-slate-500 mt-1">
-                            {(file.size / (1024 * 1024)).toFixed(2)} MB • PDF Listo para analizar
-                          </p>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              setFile(null);
-                            }}
-                            className="mt-3 text-xs text-rose-500 font-medium hover:underline"
-                          >
-                            Eliminar archivo
-                          </button>
-                        </div>
-                      ) : (
-                        <div>
-                          <p className="text-base font-semibold text-slate-800">
-                            Arrastra tu CV aquí o <span className="text-blue-600 hover:underline">haz clic para explorar</span>
-                          </p>
-                          <p className="text-xs text-slate-400 mt-1.5">
-                            Formato admitido: PDF (máx. 10MB)
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  /* Text Paste Area */
-                  <div>
-                    <label htmlFor="pasted-cv-textarea" className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                      Contenido actual de tu CV
-                    </label>
-                    <textarea
-                      id="pasted-cv-textarea"
-                      rows={10}
-                      className="w-full rounded-xl border border-slate-200 p-4 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-y"
-                      placeholder="Pega aquí toda la información de tu CV (Nombre, Experiencia, Estudios, etc.)..."
-                      value={pastedText}
-                      onChange={(e) => setPastedText(e.target.value)}
-                      disabled={isLoading}
-                    />
-                  </div>
-                )}
-
-                {/* Mensaje de Error */}
-                {error && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="mt-4 flex items-start gap-3 p-3.5 rounded-xl bg-rose-50 text-rose-700 text-sm border border-rose-100"
-                  >
-                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold">Error de archivo</p>
-                      <p className="text-xs opacity-90">{error}</p>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Botón Principal */}
-                <div className="mt-8">
-                  <button
-                    onClick={handleAnalyze}
-                    disabled={isLoading || (!file && !pastedText.trim())}
-                    className={`w-full py-4 px-6 rounded-xl font-bold text-white shadow-sm flex items-center justify-center gap-2.5 transition-all text-base md:text-lg ${
-                      isLoading
-                        ? "bg-blue-400 cursor-not-allowed"
-                        : (!file && !pastedText.trim())
-                        ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                        : "bg-blue-600 hover:bg-blue-700 active:scale-[0.99] hover:shadow-md"
-                    }`}
-                  >
-                    {isLoading ? (
-                      <>
-                        <RefreshCw className="w-5 h-5 animate-spin" />
-                        <span>Analizando tu CV...</span>
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" />
-                        <span>Analizar mi CV</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Loading State Feedback */}
-              {isLoading && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-white/50 backdrop-blur-sm rounded-2xl p-6 border border-slate-200/50 text-center shadow-inner"
-                >
-                  <div className="flex justify-center mb-3">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-slate-800">
-                    {loadingStep === 0
-                      ? "Analizando estructura, claridad y formato..."
-                      : loadingStep === 1
-                      ? "Analizando estructura de secciones y formato ATS..."
-                      : loadingStep === 2
-                      ? "Evaluando claridad, redacción y verbos de acción..."
-                      : loadingStep === 3
-                      ? "Generando diagnóstico y optimizando redacción..."
-                      : "Compilando versión final mejorada..."}
-                  </p>
-                  <div className="w-full bg-slate-200 h-1.5 rounded-full mt-4 overflow-hidden max-w-xs mx-auto">
-                    <motion.div
-                      className="bg-blue-600 h-full rounded-full"
-                      initial={{ width: "0%" }}
-                      animate={{ width: `${((loadingStep + 1) / 5) * 100}%` }}
-                      transition={{ duration: 0.5 }}
-                    />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Esto suele tardar unos 10-15 segundos. Por favor espera.
-                  </p>
-                </motion.div>
-              )}
-            </motion.div>
+              <HeroPanel />
+              <IntakeCard
+                canAnalyze={canAnalyze}
+                dragActive={dragActive}
+                error={error}
+                file={file}
+                isLoading={isLoading}
+                loadingStep={loadingStep}
+                pastedText={pastedText}
+                useTextMode={useTextMode}
+                onAnalyze={handleAnalyze}
+                onDrag={handleDrag}
+                onDrop={handleDrop}
+                onFileChange={handleFileChange}
+                onModeChange={(nextMode) => {
+                  setUseTextMode(nextMode);
+                  setError(null);
+                }}
+                onTextChange={setPastedText}
+              />
+            </motion.section>
           ) : (
-            /* STAGE 2: RESULTS & PREVIEW */
-            <motion.div
-              key="results-stage"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-8"
-            >
-              {/* Header de Resultados */}
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm">
-                <div>
-                  <div className="flex items-center gap-2.5 text-xs font-semibold text-blue-600 mb-1.5 uppercase tracking-wider">
-                    <CheckCircle className="w-4 h-4 text-emerald-500" />
-                    CV Analizado con Éxito
-                  </div>
-                  <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
-                    Tu CV ha sido optimizado
-                  </h2>
-                  <p className="text-sm text-slate-500 mt-1">
-                    Revisa el diagnóstico e introduce tu nuevo CV con formato impecable de lectura directa.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3 w-full md:w-auto shrink-0">
-                  <button
-                    onClick={handleReset}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 py-3 px-5 text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition-all"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                    <span>Analizar otro</span>
-                  </button>
-                  <button
-                    onClick={handleDownloadPDF}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 py-3 px-6 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl shadow-sm hover:shadow-md transition-all"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>Descargar PDF</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Grid: Diagnóstico e Improved Preview */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-                {/* Columna Izquierda: Diagnóstico */}
-                <div className="lg:col-span-5 space-y-6">
-                  {/* Panel de Puntuación */}
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm text-center">
-                    <span className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">
-                      Puntuación de claridad ATS
-                    </span>
-
-                    <div className="relative inline-flex items-center justify-center mb-4">
-                      {/* Radial Progress Gauge */}
-                      <svg className="w-36 h-36 transform -rotate-90">
-                        <circle
-                          cx="72"
-                          cy="72"
-                          r="62"
-                          stroke="#e2e8f0"
-                          strokeWidth="10"
-                          fill="transparent"
-                        />
-                        <motion.circle
-                          cx="72"
-                          cy="72"
-                          r="62"
-                          stroke={result.score >= 80 ? "#10b981" : result.score >= 50 ? "#f59e0b" : "#ef4444"}
-                          strokeWidth="10"
-                          fill="transparent"
-                          strokeDasharray={2 * Math.PI * 62}
-                          initial={{ strokeDashoffset: 2 * Math.PI * 62 }}
-                          animate={{ strokeDashoffset: (2 * Math.PI * 62) * (1 - result.score / 100) }}
-                          transition={{ duration: 1, ease: "easeOut" }}
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <div className="absolute text-center">
-                        <span className="text-4xl font-extrabold text-slate-900">{result.score}</span>
-                        <span className="text-slate-400 text-xs block font-medium">de 100</span>
-                      </div>
-                    </div>
-
-                    <div className="max-w-xs mx-auto">
-                      <p className="text-sm font-semibold text-slate-800">
-                        {result.score >= 80
-                          ? "¡Excelente calidad!"
-                          : result.score >= 60
-                          ? "Buen camino, con mejoras pendientes"
-                          : "Necesita mejoras estructurales urgentes"}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Tu CV original presentaba oportunidades de mejora que han sido resueltas en el documento optimizado.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Panel de Diagnóstico */}
-                  <div className="bg-white p-6 rounded-2xl border border-slate-200/60 shadow-sm space-y-6">
-                    <h3 className="text-base font-bold text-slate-900 border-b border-slate-100 pb-3 flex items-center gap-2">
-                      <FileWarning className="w-4 h-4 text-amber-500" />
-                      Diagnóstico Profesional
-                    </h3>
-
-                    {/* Problemas Detectados */}
-                    {result.problems && result.problems.length > 0 && (
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-                          Problemas Detectados ({result.problems.length})
-                        </h4>
-                        <ul className="space-y-1.5 pl-3">
-                          {result.problems.map((prob, idx) => (
-                            <li key={idx} className="text-xs text-slate-600 flex items-start gap-2">
-                              <span className="text-rose-500 mt-0.5 font-bold">•</span>
-                              <span>{prob}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Secciones Faltantes */}
-                    {result.missingSections && result.missingSections.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                          Secciones Recomendadas Faltantes
-                        </h4>
-                        <ul className="space-y-1.5 pl-3">
-                          {result.missingSections.map((sec, idx) => (
-                            <li key={idx} className="text-xs text-slate-600 flex items-start gap-2">
-                              <span className="text-amber-500 mt-0.5 font-bold">•</span>
-                              <span>{sec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Recomendaciones principales */}
-                    {result.recommendations && result.recommendations.length > 0 && (
-                      <div className="space-y-2 pt-2 border-t border-slate-100">
-                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                          Recomendaciones Principales
-                        </h4>
-                        <ul className="space-y-1.5 pl-3">
-                          {result.recommendations.map((rec, idx) => (
-                            <li key={idx} className="text-xs text-slate-600 flex items-start gap-2">
-                              <span className="text-blue-500 mt-0.5 font-bold">•</span>
-                              <span>{rec}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-400 leading-relaxed flex items-start gap-2 bg-slate-50 p-3 rounded-lg">
-                      <Info className="w-3.5 h-3.5 text-blue-500 shrink-0 mt-0.5" />
-                      <span>
-                        <strong>Importante:</strong> BlankATS no inventa experiencia ni cualificaciones. Solo optimiza tu redacción, formatos, y estructura para asegurar la lectura por parte de las plataformas automáticas de recursos humanos.
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Columna Derecha: Vista Previa del CV Optimizado */}
-                <div className="lg:col-span-7">
-                  <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
-                    {/* Header de la Hoja */}
-                    <div className="bg-slate-50 border-b border-slate-200 px-6 py-4 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-slate-500" />
-                        <span className="text-xs font-bold text-slate-600">
-                          VISTA PREVIA DEL CV CORREGIDO
-                        </span>
-                      </div>
-                      <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-mono">
-                        Monocromo • 1 Columna • ATS Friendly
-                      </span>
-                    </div>
-
-                    {/* Hoja de CV Estilo Premium (Monocromático, Limpio) */}
-                    <div className="p-8 md:p-12 text-slate-950 bg-white font-serif max-h-[800px] overflow-y-auto shadow-inner leading-relaxed text-sm selection:bg-slate-200 selection:text-black">
-                      {/* Nombre */}
-                      <h1 className="text-2xl font-extrabold tracking-tight font-sans text-black uppercase mb-1">
-                        {result.improvedCV.name}
-                      </h1>
-
-                      {/* Título profesional */}
-                      {result.improvedCV.title && (
-                        <p className="text-xs font-bold text-slate-700 tracking-wider font-sans uppercase mb-1.5">
-                          {result.improvedCV.title}
-                        </p>
-                      )}
-
-                      {/* Contacto */}
-                      {result.improvedCV.contact && (
-                        <p className="text-[11px] text-slate-600 font-sans border-b border-slate-200 pb-4 mb-4">
-                          {result.improvedCV.contact}
-                        </p>
-                      )}
-
-                      {/* Resumen */}
-                      {result.improvedCV.summary && (
-                        <div className="mb-6">
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-1.5">
-                            Resumen Profesional
-                          </h2>
-                          <p className="text-xs text-slate-800 text-justify">
-                            {result.improvedCV.summary}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Experiencia Laboral */}
-                      {result.improvedCV.experience && result.improvedCV.experience.length > 0 && (
-                        <div className="mb-6">
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-3 border-t border-slate-100 pt-3">
-                            Experiencia Laboral
-                          </h2>
-                          <div className="space-y-4">
-                            {result.improvedCV.experience.map((exp, idx) => (
-                              <div key={idx} className="space-y-1">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs">
-                                  <span className="font-bold font-sans text-slate-900">
-                                    {exp.role} <span className="font-normal text-slate-500">— {exp.company}</span>
-                                  </span>
-                                  <span className="text-[11px] font-sans text-slate-500 italic">
-                                    {exp.period}
-                                  </span>
-                                </div>
-                                <div className="pl-4 space-y-1">
-                                  {(exp.bullets || []).map((bullet, bIdx) => {
-                                    let cleanB = bullet.trim();
-                                    if (cleanB.startsWith("-") || cleanB.startsWith("•") || cleanB.startsWith("*")) {
-                                      cleanB = cleanB.substring(1).trim();
-                                    }
-                                    return (
-                                      <p key={bIdx} className="text-xs text-slate-800 list-item list-disc marker:text-slate-400">
-                                        {cleanB}
-                                      </p>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Educación */}
-                      {result.improvedCV.education && result.improvedCV.education.length > 0 && (
-                        <div className="mb-6">
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-3 border-t border-slate-100 pt-3">
-                            Educación
-                          </h2>
-                          <div className="space-y-3">
-                            {result.improvedCV.education.map((edu, idx) => (
-                              <div key={idx} className="text-xs space-y-0.5">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                  <span className="font-bold font-sans text-slate-900">
-                                    {edu.degree}
-                                  </span>
-                                  <span className="text-[11px] font-sans text-slate-500 italic">
-                                    {edu.period}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-slate-600 font-sans">
-                                  {edu.institution}
-                                </p>
-                                {edu.description && (
-                                  <p className="text-[11px] text-slate-700 italic mt-0.5">
-                                    {edu.description}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Habilidades */}
-                      {result.improvedCV.skills && result.improvedCV.skills.length > 0 && (
-                        <div className="mb-6">
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-2 border-t border-slate-100 pt-3">
-                            Habilidades
-                          </h2>
-                          <p className="text-xs text-slate-800">
-                            {result.improvedCV.skills.join(" • ")}
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Proyectos */}
-                      {result.improvedCV.projects && result.improvedCV.projects.length > 0 && (
-                        <div className="mb-6">
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-3 border-t border-slate-100 pt-3">
-                            Proyectos Destacados
-                          </h2>
-                          <div className="space-y-3">
-                            {result.improvedCV.projects.map((proj, idx) => (
-                              <div key={idx} className="text-xs space-y-0.5">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between">
-                                  <span className="font-bold font-sans text-slate-900">
-                                    {proj.name}
-                                  </span>
-                                  {proj.period && (
-                                    <span className="text-[11px] font-sans text-slate-500 italic">
-                                      {proj.period}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="pl-4 space-y-1">
-                                  {(proj.bullets || []).map((bullet, bIdx) => {
-                                    let cleanB = bullet.trim();
-                                    if (cleanB.startsWith("-") || cleanB.startsWith("•") || cleanB.startsWith("*")) {
-                                      cleanB = cleanB.substring(1).trim();
-                                    }
-                                    return (
-                                      <p key={bIdx} className="text-xs text-slate-800 list-item list-disc marker:text-slate-400">
-                                        {cleanB}
-                                      </p>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Certificaciones */}
-                      {result.improvedCV.certifications && result.improvedCV.certifications.length > 0 && (
-                        <div>
-                          <h2 className="text-[11px] font-bold text-slate-900 tracking-wider font-sans uppercase mb-2 border-t border-slate-100 pt-3">
-                            Certificaciones y Cursos
-                          </h2>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pl-3">
-                            {result.improvedCV.certifications.map((cert, idx) => (
-                              <div key={idx} className="text-xs text-slate-800 list-item list-disc marker:text-slate-400">
-                                {cert}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
+            <ResultsView
+              result={result}
+              onDownload={handleDownloadPDF}
+              onReset={handleReset}
+            />
           )}
         </AnimatePresence>
       </main>
-
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-100 mt-20 py-8 px-4 text-center text-xs text-slate-400">
-        <div className="max-w-7xl mx-auto space-y-2">
-          <p className="font-semibold text-slate-600">
-            Blank<span className="text-blue-600">ATS</span> — Herramienta gratuita de optimización de currículums.
-          </p>
-          <p>
-            Diseño premium optimizado. Garantizamos que tus datos originales permanecen 100% verídicos sin inventar experiencia laboral.
-          </p>
-          <p className="pt-2 text-[10px]">
-            &copy; {new Date().getFullYear()} BlankATS. Hecho para profesionales exigentes.
-          </p>
-        </div>
-      </footer>
     </div>
+  );
+}
+
+function AppHeader() {
+  return (
+    <header className="sticky top-0 z-40 border-b border-white/70 bg-white/78 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+        <BlankATSLogo />
+        <div className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm sm:flex">
+          <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+          Sin pagos ni cuenta en este MVP
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function BlankATSLogo() {
+  return (
+    <div className="flex items-center gap-3">
+      <Image
+        src="/blankats-wordmark.png"
+        alt="BlankATS"
+        width={820}
+        height={240}
+        priority
+        className="h-10 w-auto max-w-[210px] object-contain sm:h-12"
+      />
+      <div className="leading-none">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 sm:text-[11px]">
+          CV clarity studio
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function HeroPanel() {
+  return (
+    <section className="pt-5 lg:pt-12">
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08, duration: 0.4 }}
+        className="max-w-xl"
+      >
+        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-xs font-bold text-blue-700 shadow-sm">
+          <Sparkles className="h-3.5 w-3.5" />
+          Revision inteligente para CVs profesionales
+        </div>
+        <h1 className="text-balance text-4xl font-black leading-[0.98] tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+          Convierte tu CV en una lectura clara y confiable.
+        </h1>
+        <p className="mt-5 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">
+          BlankATS analiza tu PDF o texto, detecta oportunidades de mejora y prepara una version mas ordenada, profesional y facil de revisar por reclutadores y procesos digitales.
+        </p>
+        <div className="mt-7 grid gap-3 sm:grid-cols-3">
+          {safeHighlights.map((item) => (
+            <div
+              key={item}
+              className="rounded-lg border border-white bg-white/72 px-4 py-3 text-sm font-bold text-slate-700 shadow-sm"
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+      </motion.div>
+    </section>
+  );
+}
+
+interface IntakeCardProps {
+  canAnalyze: boolean;
+  dragActive: boolean;
+  error: string | null;
+  file: File | null;
+  isLoading: boolean;
+  loadingStep: number;
+  pastedText: string;
+  useTextMode: boolean;
+  onAnalyze: () => void;
+  onDrag: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  onModeChange: (useTextMode: boolean) => void;
+  onTextChange: (value: string) => void;
+}
+
+function IntakeCard({
+  canAnalyze,
+  dragActive,
+  error,
+  file,
+  isLoading,
+  loadingStep,
+  pastedText,
+  useTextMode,
+  onAnalyze,
+  onDrag,
+  onDrop,
+  onFileChange,
+  onModeChange,
+  onTextChange,
+}: IntakeCardProps) {
+  return (
+    <section className="rounded-lg border border-white bg-white/88 p-4 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6 lg:mt-8">
+      <div className="rounded-lg border border-slate-100 bg-slate-50/70 p-2">
+        <div className="grid grid-cols-2 gap-2">
+          <ModeButton
+            active={!useTextMode}
+            icon={<FileUp className="h-4 w-4" />}
+            label="PDF"
+            onClick={() => onModeChange(false)}
+          />
+          <ModeButton
+            active={useTextMode}
+            icon={<TextCursorInput className="h-4 w-4" />}
+            label="Texto"
+            onClick={() => onModeChange(true)}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5">
+        {!useTextMode ? (
+          <UploadDropzone
+            dragActive={dragActive}
+            file={file}
+            onDrag={onDrag}
+            onDrop={onDrop}
+            onFileChange={onFileChange}
+          />
+        ) : (
+          <TextInputArea value={pastedText} onChange={onTextChange} />
+        )}
+      </div>
+
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="mt-4 flex gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>{error}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button
+        type="button"
+        onClick={onAnalyze}
+        disabled={isLoading || !canAnalyze}
+        className="mt-5 flex min-h-14 w-full items-center justify-center gap-3 rounded-lg bg-slate-950 px-5 py-4 text-sm font-black text-white shadow-[0_18px_40px_rgba(15,23,42,0.20)] transition duration-200 hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Analizando
+          </>
+        ) : (
+          <>
+            Analizar mi CV
+            <ArrowRight className="h-5 w-5" />
+          </>
+        )}
+      </button>
+
+      {isLoading && <LoadingState activeStep={loadingStep} />}
+    </section>
+  );
+}
+
+function ModeButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-sm font-black transition ${
+        active
+          ? "bg-white text-slate-950 shadow-sm ring-1 ring-slate-200"
+          : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function UploadDropzone({
+  dragActive,
+  file,
+  onDrag,
+  onDrop,
+  onFileChange,
+}: {
+  dragActive: boolean;
+  file: File | null;
+  onDrag: (event: DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+  onFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <div
+      onDragEnter={onDrag}
+      onDragOver={onDrag}
+      onDragLeave={onDrag}
+      onDrop={onDrop}
+      className={`relative overflow-hidden rounded-lg border border-dashed p-7 text-center transition sm:p-9 ${
+        dragActive
+          ? "border-blue-400 bg-blue-50"
+          : file
+            ? "border-emerald-300 bg-emerald-50/70"
+            : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/35"
+      }`}
+    >
+      <input
+        type="file"
+        accept="application/pdf"
+        onChange={onFileChange}
+        className="absolute inset-0 cursor-pointer opacity-0"
+        aria-label="Subir CV en PDF"
+      />
+      <div className="mx-auto grid h-16 w-16 place-items-center rounded-lg bg-slate-950 text-white shadow-lg">
+        {file ? <FileCheck2 className="h-7 w-7" /> : <FileUp className="h-7 w-7" />}
+      </div>
+      <h2 className="mt-5 text-xl font-black tracking-tight text-slate-950">
+        {file ? file.name : "Sube tu CV en PDF"}
+      </h2>
+      <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
+        {file
+          ? "Archivo listo para analizar. Puedes iniciar cuando quieras."
+          : "Arrastra tu archivo aqui o toca para seleccionarlo desde tu dispositivo."}
+      </p>
+      <p className="mt-4 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+        PDF recomendado
+      </p>
+    </div>
+  );
+}
+
+function TextInputArea({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-3 block text-sm font-black text-slate-800">
+        Pega el texto de tu CV
+      </span>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Pega aqui tu experiencia, educacion, habilidades y datos de contacto..."
+        className="min-h-72 w-full resize-none rounded-lg border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+      />
+    </label>
+  );
+}
+
+function LoadingState({ activeStep }: { activeStep: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mt-5 rounded-lg border border-blue-100 bg-blue-50/70 p-4"
+    >
+      <div className="flex items-center gap-3 text-sm font-black text-blue-900">
+        <WandSparkles className="h-4 w-4" />
+        {loadingSteps[activeStep]}
+      </div>
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
+        <motion.div
+          className="h-full rounded-full bg-blue-600"
+          initial={{ width: "8%" }}
+          animate={{ width: `${((activeStep + 1) / loadingSteps.length) * 100}%` }}
+          transition={{ duration: 0.45, ease: "easeOut" }}
+        />
+      </div>
+    </motion.div>
+  );
+}
+
+function ResultsView({
+  result,
+  onDownload,
+  onReset,
+}: {
+  result: AnalysisResponse;
+  onDownload: () => void;
+  onReset: () => void;
+}) {
+  return (
+    <motion.section
+      key="results"
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -18 }}
+      transition={{ duration: 0.34, ease: "easeOut" }}
+      className="space-y-6"
+    >
+      <div className="rounded-lg border border-white bg-white/88 p-5 shadow-[0_24px_80px_rgba(15,23,42,0.10)] backdrop-blur sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-sm font-black text-emerald-700">
+              <CheckCircle2 className="h-4 w-4" />
+              Diagnostico listo
+            </div>
+            <h1 className="text-3xl font-black tracking-tight text-slate-950">
+              Tu CV ya tiene una version mas clara.
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Revisa los hallazgos principales, confirma que la informacion sea fiel a tu experiencia y descarga el PDF mejorado.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={onReset}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-5 text-sm font-black text-slate-800 transition hover:-translate-y-0.5 hover:border-slate-300"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Analizar otro
+            </button>
+            <button
+              type="button"
+              onClick={onDownload}
+              className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 text-sm font-black text-white shadow-[0_14px_30px_rgba(37,99,235,0.24)] transition hover:-translate-y-0.5 hover:bg-blue-700"
+            >
+              <Download className="h-4 w-4" />
+              Descargar PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[0.82fr_1.18fr]">
+        <DiagnosisPanel result={result} />
+        <CVPreview cv={result.improvedCV} />
+      </div>
+    </motion.section>
+  );
+}
+
+function DiagnosisPanel({ result }: { result: AnalysisResponse }) {
+  const scoreTone =
+    result.score >= 80
+      ? "text-emerald-600"
+      : result.score >= 60
+        ? "text-amber-600"
+        : "text-rose-600";
+
+  return (
+    <aside className="space-y-5">
+      <div className="rounded-lg border border-white bg-white p-6 shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+          Claridad del documento
+        </p>
+        <div className="mt-5 flex items-end gap-3">
+          <span className={`text-7xl font-black leading-none tracking-tight ${scoreTone}`}>
+            {result.score}
+          </span>
+          <span className="mb-2 text-lg font-black text-slate-400">/100</span>
+        </div>
+        <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.max(0, Math.min(result.score, 100))}%` }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="h-full rounded-full bg-blue-600"
+          />
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-600">
+          Esta puntuacion resume legibilidad, estructura y facilidad de revision. No representa una garantia de resultado laboral.
+        </p>
+      </div>
+
+      <InsightList title="Problemas detectados" tone="rose" items={result.problems} />
+      <InsightList title="Secciones a revisar" tone="amber" items={result.missingSections} />
+      <InsightList title="Recomendaciones" tone="blue" items={result.recommendations} />
+    </aside>
+  );
+}
+
+function InsightList({
+  title,
+  tone,
+  items,
+}: {
+  title: string;
+  tone: "rose" | "amber" | "blue";
+  items: string[];
+}) {
+  const toneClass = {
+    rose: "bg-rose-500",
+    amber: "bg-amber-500",
+    blue: "bg-blue-600",
+  }[tone];
+
+  return (
+    <div className="rounded-lg border border-white bg-white p-5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className={`h-2.5 w-2.5 rounded-full ${toneClass}`} />
+        <h2 className="text-sm font-black text-slate-950">{title}</h2>
+      </div>
+      {items?.length ? (
+        <ul className="mt-4 space-y-3">
+          {items.map((item) => (
+            <li key={item} className="flex gap-3 text-sm leading-6 text-slate-600">
+              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-sm text-slate-500">
+          No se detectaron puntos criticos en esta categoria.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CVPreview({ cv }: { cv: ImprovedCV }) {
+  return (
+    <article className="overflow-hidden rounded-lg border border-white bg-white shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
+      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-950 px-5 py-4 text-white sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-2 text-sm font-black">
+          <FileText className="h-4 w-4 text-blue-300" />
+          Preview del CV mejorado
+        </div>
+        <p className="text-xs font-semibold text-slate-300">
+          Formato limpio, una columna, facil de revisar
+        </p>
+      </div>
+      <div className="max-h-[760px] overflow-y-auto bg-slate-100 p-3 sm:p-6">
+        <div className="mx-auto min-h-[680px] max-w-[760px] bg-white px-6 py-8 text-slate-950 shadow-sm sm:px-10 sm:py-12">
+          <h2 className="text-3xl font-black uppercase tracking-tight text-slate-950">
+            {cv.name}
+          </h2>
+          {cv.title && (
+            <p className="mt-1 text-sm font-black uppercase tracking-[0.12em] text-slate-600">
+              {cv.title}
+            </p>
+          )}
+          {cv.contact && (
+            <p className="mt-3 border-b border-slate-200 pb-5 text-sm leading-6 text-slate-600">
+              {cv.contact}
+            </p>
+          )}
+
+          <CVSection title="Resumen profesional">
+            <p className="text-sm leading-7 text-slate-700">{cv.summary}</p>
+          </CVSection>
+
+          {cv.experience?.length > 0 && (
+            <CVSection title="Experiencia laboral">
+              <div className="space-y-5">
+                {cv.experience.map((item) => (
+                  <div key={`${item.role}-${item.company}-${item.period}`}>
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                      <h3 className="text-sm font-black text-slate-950">
+                        {item.role} <span className="font-semibold text-slate-500">- {item.company}</span>
+                      </h3>
+                      <p className="text-xs font-semibold text-slate-500">{item.period}</p>
+                    </div>
+                    <ul className="mt-2 space-y-1.5 pl-4">
+                      {item.bullets
+                        .filter((line) => line.trim())
+                        .map((line) => (
+                          <li key={line} className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400">
+                            {line.trim()}
+                          </li>
+                        ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </CVSection>
+          )}
+
+          {cv.education?.length > 0 && (
+            <CVSection title="Educacion">
+              <div className="space-y-4">
+                {cv.education.map((item) => (
+                  <div key={`${item.degree}-${item.institution}-${item.period}`}>
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                      <h3 className="text-sm font-black text-slate-950">{item.degree}</h3>
+                      <p className="text-xs font-semibold text-slate-500">{item.period}</p>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{item.institution}</p>
+                    {item.description && (
+                      <p className="mt-1 text-sm italic text-slate-600">{item.description}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CVSection>
+          )}
+
+          {cv.skills?.length > 0 && (
+            <CVSection title="Habilidades">
+              <p className="text-sm leading-7 text-slate-700">{cv.skills.join(" - ")}</p>
+            </CVSection>
+          )}
+
+          {cv.projects && cv.projects.length > 0 && (
+            <CVSection title="Proyectos">
+              <div className="space-y-3">
+                {cv.projects.map((item) => (
+                  <div key={`${item.name}-${item.period || ""}`}>
+                    <h3 className="text-sm font-black text-slate-950">
+                      {item.name}
+                      {item.period ? <span className="font-semibold text-slate-500"> - {item.period}</span> : null}
+                    </h3>
+                    <ul className="mt-2 space-y-1.5 pl-4">
+                      {item.bullets.map((line) => (
+                        <li key={line} className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </CVSection>
+          )}
+
+          {cv.certifications && cv.certifications.length > 0 && (
+            <CVSection title="Certificaciones">
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {cv.certifications.map((item) => (
+                  <li key={item} className="list-inside list-disc text-sm text-slate-700 marker:text-slate-400">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </CVSection>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function CVSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mt-7 border-t border-slate-200 pt-5">
+      <h3 className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-slate-950">
+        {title}
+      </h3>
+      {children}
+    </section>
   );
 }

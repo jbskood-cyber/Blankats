@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       Sigue rigurosamente las siguientes directrices y reglas críticas de generación:
       
       1. REGLAS DE ESTRUCTURA Y FORMATO:
-         - El CV optimizado debe ser limpio, en una sola columna, elegante y 100% compatible con lectores ATS.
+         - El CV optimizado debe ser limpio, en una sola columna, elegante y facil de revisar por lectores ATS.
          - En la sección "experience", cada logro o función debe devolverse en el array "bullets" como un string independiente.
          - En la sección "projects", cada detalle, contribución o logro debe devolverse en el array "bullets" como un string independiente.
          - NUNCA unas las viñetas (bullets) usando guiones, puntos, ".-", " - " ni saltos de línea dentro de un mismo string. Cada logro va en su propio string dentro del array.
