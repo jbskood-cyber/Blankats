@@ -28,7 +28,8 @@ interface ImprovedCV {
     company: string;
     role: string;
     period: string;
-    description: string;
+    bullets: string[];
+    description?: string;
   }[];
   education: {
     institution: string;
@@ -39,8 +40,9 @@ interface ImprovedCV {
   skills: string[];
   projects?: {
     name: string;
-    description: string;
+    bullets: string[];
     period?: string;
+    description?: string;
   }[];
   certifications?: string[];
 }
@@ -51,6 +53,91 @@ interface AnalysisResponse {
   missingSections: string[];
   recommendations: string[];
   improvedCV: ImprovedCV;
+}
+
+function sanitizeImprovedCV(cv: any): ImprovedCV {
+  const forbiddenPatterns = [
+    /\[[^\]]*sugerencia[^\]]*\]/gi,
+    /\[[^\]]*agregar[^\]]*\]/gi,
+    /\[[^\]]*anadir[^\]]*\]/gi,
+    /\[[^\]]*a\u00f1adir[^\]]*\]/gi,
+    /pendiente/gi,
+    /N\/A/gi,
+  ];
+
+  const cleanText = (value: unknown): string => {
+    let text = String(value ?? "").trim();
+    forbiddenPatterns.forEach((pattern) => {
+      text = text.replace(pattern, "");
+    });
+    return text.replace(/\s+/g, " ").trim();
+  };
+
+  const sanitizeBullets = (
+    bullets: unknown,
+    descriptionFallback?: string,
+  ): string[] => {
+    let rawList: string[] = [];
+
+    if (Array.isArray(bullets) && bullets.length > 0) {
+      rawList = bullets.map((bullet) => String(bullet));
+    } else if (descriptionFallback) {
+      rawList = descriptionFallback
+        .split(/\n|(?:\s[-*]\s)|(?:\.\s(?=[A-ZÁÉÍÓÚÑ]))/)
+        .map((line) => line.replace(/^[-*]\s?/, ""));
+    }
+
+    return rawList
+      .map(cleanText)
+      .filter(Boolean)
+      .filter((bullet) => bullet.length > 2);
+  };
+
+  const experience = Array.isArray(cv?.experience)
+    ? cv.experience.map((item: any) => ({
+        company: cleanText(item.company),
+        role: cleanText(item.role),
+        period: cleanText(item.period),
+        bullets: sanitizeBullets(item.bullets, item.description),
+      }))
+    : [];
+
+  const education = Array.isArray(cv?.education)
+    ? cv.education.map((item: any) => ({
+        institution: cleanText(item.institution),
+        degree: cleanText(item.degree),
+        period: cleanText(item.period),
+        description: item.description ? cleanText(item.description) : undefined,
+      }))
+    : [];
+
+  const skills = Array.isArray(cv?.skills)
+    ? cv.skills.map(cleanText).filter(Boolean)
+    : [];
+
+  const projects = Array.isArray(cv?.projects)
+    ? cv.projects.map((item: any) => ({
+        name: cleanText(item.name),
+        bullets: sanitizeBullets(item.bullets, item.description),
+        period: item.period ? cleanText(item.period) : undefined,
+      }))
+    : [];
+
+  const certifications = Array.isArray(cv?.certifications)
+    ? cv.certifications.map(cleanText).filter(Boolean)
+    : undefined;
+
+  return {
+    name: cleanText(cv?.name),
+    title: cleanText(cv?.title),
+    contact: cleanText(cv?.contact),
+    summary: cleanText(cv?.summary),
+    experience,
+    education,
+    skills,
+    projects: projects.length > 0 ? projects : undefined,
+    certifications,
+  };
 }
 
 const loadingSteps = [
@@ -164,6 +251,7 @@ export default function Home() {
       }
 
       const data = (await response.json()) as AnalysisResponse;
+      data.improvedCV = sanitizeImprovedCV(data.improvedCV);
       setResult(data);
     } catch (caughtError) {
       const message =
@@ -264,11 +352,10 @@ export default function Home() {
           doc.text(item.period || "", pageWidth - margin - doc.getTextWidth(item.period || ""), currentY);
           currentY += 14;
 
-          item.description
-            .split("\n")
+          item.bullets
             .filter((line) => line.trim())
             .forEach((line) => {
-              const cleanLine = line.replace(/^[-*]\s?/, "").trim();
+              const cleanLine = line.trim();
               const bulletLines = doc.splitTextToSize(cleanLine, contentWidth - 18);
               ensureSpace(bulletLines.length * 12.5);
               doc.setTextColor(55, 63, 78);
@@ -311,7 +398,16 @@ export default function Home() {
         cv.projects.forEach((item) => {
           doc.setTextColor(12, 17, 29);
           addText(`${item.name}${item.period ? ` - ${item.period}` : ""}`, 10, "bold", 13);
-          addText(item.description, 9, "normal", 12.5);
+          item.bullets.forEach((line) => {
+            const bulletLines = doc.splitTextToSize(line, contentWidth - 18);
+            ensureSpace(bulletLines.length * 12.5);
+            doc.setTextColor(55, 63, 78);
+            doc.text("-", margin + 8, currentY);
+            bulletLines.forEach((bulletLine: string) => {
+              doc.text(bulletLine, margin + 18, currentY);
+              currentY += 12.5;
+            });
+          });
           currentY += 4;
         });
       }
@@ -863,12 +959,11 @@ function CVPreview({ cv }: { cv: ImprovedCV }) {
                       <p className="text-xs font-semibold text-slate-500">{item.period}</p>
                     </div>
                     <ul className="mt-2 space-y-1.5 pl-4">
-                      {item.description
-                        .split("\n")
+                      {item.bullets
                         .filter((line) => line.trim())
                         .map((line) => (
                           <li key={line} className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400">
-                            {line.replace(/^[-*]\s?/, "").trim()}
+                            {line.trim()}
                           </li>
                         ))}
                     </ul>
@@ -912,7 +1007,13 @@ function CVPreview({ cv }: { cv: ImprovedCV }) {
                       {item.name}
                       {item.period ? <span className="font-semibold text-slate-500"> - {item.period}</span> : null}
                     </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-700">{item.description}</p>
+                    <ul className="mt-2 space-y-1.5 pl-4">
+                      {item.bullets.map((line) => (
+                        <li key={line} className="list-disc text-sm leading-6 text-slate-700 marker:text-slate-400">
+                          {line}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 ))}
               </div>
