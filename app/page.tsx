@@ -25,7 +25,8 @@ interface ImprovedCV {
     company: string;
     role: string;
     period: string;
-    description: string;
+    bullets: string[];
+    description?: string;
   }[];
   education: {
     institution: string;
@@ -36,8 +37,9 @@ interface ImprovedCV {
   skills: string[];
   projects?: {
     name: string;
-    description: string;
+    bullets: string[];
     period?: string;
+    description?: string;
   }[];
   certifications?: string[];
 }
@@ -48,6 +50,113 @@ interface AnalysisResponse {
   missingSections: string[];
   recommendations: string[];
   improvedCV: ImprovedCV;
+}
+
+function sanitizeImprovedCV(cv: any): ImprovedCV {
+  if (!cv) {
+    return {
+      name: "",
+      title: "",
+      contact: "",
+      summary: "",
+      experience: [],
+      education: [],
+      skills: [],
+    };
+  }
+
+  const cleanText = (text: string | undefined): string => {
+    if (!text) return "";
+    let t = text;
+    // Remove any text in square brackets [Sugerencia...] or similar
+    t = t.replace(/\[[^\]]*\]/g, "");
+    // Remove common placeholders
+    t = t.replace(/pendiente/gi, "");
+    t = t.replace(/agregar aquí/gi, "");
+    t = t.replace(/\bn\/a\b/gi, "");
+    t = t.replace(/placeholder/gi, "");
+    // Clean up multiple spaces and clean trailing/leading spaces
+    t = t.replace(/\s\s+/g, " ").trim();
+    return t;
+  };
+
+  const sanitizeBullets = (bullets: any[] | undefined, descriptionFallback: string | undefined): string[] => {
+    let rawList: string[] = [];
+    if (Array.isArray(bullets) && bullets.length > 0) {
+      rawList = bullets.map(b => String(b));
+    } else if (descriptionFallback) {
+      // Convert description string to bullets
+      let cleaned = descriptionFallback
+        .replace(/\.-/g, "\n")
+        .replace(/ • /g, "\n")
+        .replace(/ \s*-\s* /g, "\n")
+        .replace(/•/g, "\n");
+      rawList = cleaned.split("\n");
+    }
+
+    return rawList
+      .map(line => {
+        let l = line.trim();
+        // Remove brackets and suggestions from bullet
+        l = l.replace(/\[[^\]]*\]/g, "");
+        l = l.replace(/pendiente/gi, "");
+        l = l.replace(/agregar aquí/gi, "");
+        l = l.replace(/\bn\/a\b/gi, "");
+        l = l.replace(/placeholder/gi, "");
+        // Remove leading dashes/bullets
+        if (l.startsWith("-") || l.startsWith("•") || l.startsWith("*") || l.startsWith(".")) {
+          l = l.substring(1).trim();
+        }
+        return l.trim();
+      })
+      .filter(line => line.length > 0);
+  };
+
+  const cleanExperience = Array.isArray(cv.experience)
+    ? cv.experience.map((exp: any) => ({
+        company: cleanText(exp.company),
+        role: cleanText(exp.role),
+        period: cleanText(exp.period),
+        bullets: sanitizeBullets(exp.bullets, exp.description),
+      }))
+    : [];
+
+  const cleanEducation = Array.isArray(cv.education)
+    ? cv.education.map((edu: any) => ({
+        institution: cleanText(edu.institution),
+        degree: cleanText(edu.degree),
+        period: cleanText(edu.period),
+        description: edu.description ? cleanText(edu.description) : undefined,
+      }))
+    : [];
+
+  const cleanProjects = Array.isArray(cv.projects)
+    ? cv.projects.map((proj: any) => ({
+        name: cleanText(proj.name),
+        period: proj.period ? cleanText(proj.period) : undefined,
+        bullets: sanitizeBullets(proj.bullets, proj.description),
+      }))
+    : [];
+
+  const cleanSkills = Array.isArray(cv.skills)
+    ? cv.skills.map((s: any) => cleanText(String(s))).filter((s: string) => s.length > 0)
+    : [];
+
+  const cleanCertifications = Array.isArray(cv.certifications)
+    ? cv.certifications.map((c: any) => cleanText(String(c))).filter((c: string) => c.length > 0)
+    : [];
+
+  return {
+    name: cleanText(cv.name),
+    title: cleanText(cv.title),
+    contact: cleanText(cv.contact),
+    summary: cleanText(cv.summary),
+    experience: cleanExperience,
+    education: cleanEducation,
+    skills: cleanSkills,
+    projects: cleanProjects.length > 0 ? cleanProjects : undefined,
+    certifications: cleanCertifications.length > 0 ? cleanCertifications : undefined,
+  };
 }
 
 export default function Home() {
@@ -168,6 +277,9 @@ export default function Home() {
       }
 
       const data: AnalysisResponse = await response.json();
+      if (data && data.improvedCV) {
+        data.improvedCV = sanitizeImprovedCV(data.improvedCV);
+      }
       setResult(data);
     } catch (err: any) {
       console.error(err);
@@ -191,17 +303,23 @@ export default function Home() {
       const contentWidth = pageWidth - margin * 2;
       let currentY = 50;
 
+      // Color constants
+      const colorPrimary = [27, 54, 93]; // Deep corporate slate blue
+      const colorBody = [45, 55, 72];    // Off-black charcoal for readability
+      const colorMuted = [113, 128, 150]; // Soft gray for dates/metadata
+
       // Helper to add clean lines of text and auto-wrap / auto-page-break
-      const addText = (text: string, size: number, style: "normal" | "bold" | "italic" = "normal", spacing = 15) => {
+      const addText = (text: string, size: number, style: "normal" | "bold" | "italic" = "normal", spacing = 13.5) => {
         doc.setFont("helvetica", style);
         doc.setFontSize(size);
+        doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
         
         const lines = doc.splitTextToSize(text, contentWidth);
         const totalHeight = lines.length * spacing;
         
         if (currentY + totalHeight > pageHeight - margin) {
           doc.addPage();
-          currentY = margin;
+          currentY = margin + 10;
         }
         
         lines.forEach((line: string) => {
@@ -210,17 +328,26 @@ export default function Home() {
         });
       };
 
-      // Helper for clean divider lines
-      const addSeparator = (spacingBefore = 8, spacingAfter = 12) => {
-        currentY += spacingBefore;
-        if (currentY > pageHeight - margin) {
+      // Helper for elegant section headers with solid thin lines
+      const addSectionHeader = (title: string) => {
+        if (currentY + 32 > pageHeight - margin) {
           doc.addPage();
-          currentY = margin;
+          currentY = margin + 10;
+        } else {
+          currentY += 15;
         }
-        doc.setDrawColor(200, 200, 200);
+        
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
+        doc.text(title.toUpperCase(), margin, currentY);
+        currentY += 4;
+        
+        // Solid thin blue line below section header
+        doc.setDrawColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
         doc.setLineWidth(0.75);
         doc.line(margin, currentY, pageWidth - margin, currentY);
-        currentY += spacingAfter;
+        currentY += 12;
       };
 
       const cv = result.improvedCV;
@@ -228,13 +355,13 @@ export default function Home() {
       // Name (Main Header)
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
-      doc.setTextColor(0, 0, 0);
+      doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
       const nameText = cv.name.toUpperCase();
       const nameLines = doc.splitTextToSize(nameText, contentWidth);
       nameLines.forEach((line: string) => {
-        if (currentY + 25 > pageHeight - margin) {
+        if (currentY + 24 > pageHeight - margin) {
           doc.addPage();
-          currentY = margin;
+          currentY = margin + 10;
         }
         doc.text(line, margin, currentY);
         currentY += 24;
@@ -243,32 +370,33 @@ export default function Home() {
       // Title
       if (cv.title) {
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(12);
-        doc.setTextColor(80, 80, 80);
-        const titleLines = doc.splitTextToSize(cv.title.toUpperCase(), contentWidth);
+        doc.setFontSize(11.5);
+        doc.setTextColor(74, 85, 104);
+        const titleText = cv.title.toUpperCase();
+        const titleLines = doc.splitTextToSize(titleText, contentWidth);
         titleLines.forEach((line: string) => {
-          if (currentY + 16 > pageHeight - margin) {
+          if (currentY + 15 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
           doc.text(line, margin, currentY);
-          currentY += 15;
+          currentY += 14;
         });
       }
 
       // Contact
       if (cv.contact) {
         doc.setFont("helvetica", "normal");
-        doc.setFontSize(9);
-        doc.setTextColor(110, 110, 110);
+        doc.setFontSize(9.5);
+        doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
         const contactLines = doc.splitTextToSize(cv.contact, contentWidth);
         contactLines.forEach((line: string) => {
-          if (currentY + 14 > pageHeight - margin) {
+          if (currentY + 13 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
           doc.text(line, margin, currentY);
-          currentY += 13;
+          currentY += 12;
         });
       }
 
@@ -276,103 +404,104 @@ export default function Home() {
 
       // Professional Summary
       if (cv.summary) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("RESUMEN PROFESIONAL", margin, currentY);
-        currentY += 15;
-        
+        addSectionHeader("RESUMEN PROFESIONAL");
         addText(cv.summary, 9.5, "normal", 13.5);
       }
 
       // Work Experience
       if (cv.experience && cv.experience.length > 0) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("EXPERIENCIA LABORAL", margin, currentY);
-        currentY += 15;
+        addSectionHeader("EXPERIENCIA LABORAL");
 
         cv.experience.forEach((exp) => {
-          if (currentY + 35 > pageHeight - margin) {
+          if (currentY + 25 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
 
           // Header: Role & Company
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
-          doc.setTextColor(0, 0, 0);
-          const headerText = `${exp.role} — ${exp.company}`;
-          doc.text(headerText, margin, currentY);
+          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
+          doc.text(exp.role, margin, currentY);
+
+          // Calculate company position
+          const roleWidth = doc.getTextWidth(exp.role);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(74, 85, 104);
+          doc.text(` — ${exp.company}`, margin + roleWidth, currentY);
 
           // Period (aligned right)
           doc.setFont("helvetica", "italic");
           doc.setFontSize(9);
-          doc.setTextColor(100, 100, 100);
+          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
           const periodText = exp.period || "";
           const periodWidth = doc.getTextWidth(periodText);
           doc.text(periodText, pageWidth - margin - periodWidth, currentY);
           currentY += 14;
 
-          // Description (with bullets)
-          const bullets = exp.description.split("\n").filter(b => b.trim().length > 0);
+          // Render bullets
+          const bullets = exp.bullets || [];
           bullets.forEach((bullet) => {
             let cleanBullet = bullet.trim();
             if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
               cleanBullet = cleanBullet.substring(1).trim();
             }
 
-            // Bullet symbol
             doc.setFont("helvetica", "normal");
-            doc.setFontSize(9);
-            doc.setTextColor(60, 60, 60);
-            doc.text("•", margin + 10, currentY);
+            doc.setFontSize(9.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
 
-            // Wrapped bullet text
             const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
-            if (currentY + (bulletLines.length * 12.5) > pageHeight - margin) {
+            const bulletHeight = bulletLines.length * 13;
+            
+            if (currentY + bulletHeight > pageHeight - margin) {
               doc.addPage();
-              currentY = margin;
+              currentY = margin + 10;
             }
+
+            // Draw bullet character
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text("•", margin + 8, currentY + 1.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
             bulletLines.forEach((line: string) => {
               doc.text(line, margin + 18, currentY);
-              currentY += 12;
+              currentY += 13;
             });
           });
-          currentY += 6;
+          currentY += 4;
         });
       }
 
       // Education
       if (cv.education && cv.education.length > 0) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("EDUCACIÓN", margin, currentY);
-        currentY += 15;
+        addSectionHeader("EDUCACIÓN");
 
         cv.education.forEach((edu) => {
-          if (currentY + 25 > pageHeight - margin) {
+          if (currentY + 22 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
 
+          // Header: Degree & Institution
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
-          doc.setTextColor(0, 0, 0);
-          doc.text(`${edu.degree} — ${edu.institution}`, margin, currentY);
+          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
+          doc.text(edu.degree, margin, currentY);
 
+          const degreeWidth = doc.getTextWidth(edu.degree);
+          doc.setFont("helvetica", "normal");
+          doc.setTextColor(74, 85, 104);
+          doc.text(` — ${edu.institution}`, margin + degreeWidth, currentY);
+
+          // Period (aligned right)
           doc.setFont("helvetica", "italic");
           doc.setFontSize(9);
-          doc.setTextColor(100, 100, 100);
+          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
           const periodText = edu.period || "";
           const periodWidth = doc.getTextWidth(periodText);
           doc.text(periodText, pageWidth - margin - periodWidth, currentY);
-          currentY += 13;
+          currentY += 14;
 
           if (edu.description) {
             addText(edu.description, 9, "normal", 12.5);
@@ -384,69 +513,86 @@ export default function Home() {
 
       // Skills
       if (cv.skills && cv.skills.length > 0) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("HABILIDADES", margin, currentY);
-        currentY += 15;
-
-        const skillsJoined = cv.skills.join(", ");
-        addText(skillsJoined, 9, "normal", 13);
+        addSectionHeader("HABILIDADES");
+        const skillsJoined = cv.skills.join("  •  ");
+        addText(skillsJoined, 9.5, "normal", 13.5);
       }
 
       // Projects
       if (cv.projects && cv.projects.length > 0) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("PROYECTOS", margin, currentY);
-        currentY += 15;
+        addSectionHeader("PROYECTOS");
 
         cv.projects.forEach((proj) => {
-          if (currentY + 20 > pageHeight - margin) {
+          if (currentY + 22 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
 
           doc.setFont("helvetica", "bold");
           doc.setFontSize(10);
-          doc.setTextColor(0, 0, 0);
+          doc.setTextColor(colorPrimary[0], colorPrimary[1], colorPrimary[2]);
           doc.text(proj.name, margin, currentY);
 
           if (proj.period) {
             doc.setFont("helvetica", "italic");
             doc.setFontSize(9);
-            doc.setTextColor(100, 100, 100);
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
             const pWidth = doc.getTextWidth(proj.period);
             doc.text(proj.period, pageWidth - margin - pWidth, currentY);
           }
-          currentY += 13;
+          currentY += 14;
 
-          addText(proj.description, 9, "normal", 12.5);
+          const bullets = proj.bullets || [];
+          bullets.forEach((bullet) => {
+            let cleanBullet = bullet.trim();
+            if (cleanBullet.startsWith("-") || cleanBullet.startsWith("•") || cleanBullet.startsWith("*")) {
+              cleanBullet = cleanBullet.substring(1).trim();
+            }
+
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(9.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            const bulletLines = doc.splitTextToSize(cleanBullet, contentWidth - 18);
+            const bulletHeight = bulletLines.length * 13;
+            
+            if (currentY + bulletHeight > pageHeight - margin) {
+              doc.addPage();
+              currentY = margin + 10;
+            }
+
+            // Draw bullet character
+            doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+            doc.text("•", margin + 8, currentY + 1.5);
+            doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+
+            bulletLines.forEach((line: string) => {
+              doc.text(line, margin + 18, currentY);
+              currentY += 13;
+            });
+          });
           currentY += 4;
         });
       }
 
       // Certifications
       if (cv.certifications && cv.certifications.length > 0) {
-        addSeparator(5, 12);
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(0, 0, 0);
-        doc.text("CERTIFICACIONES", margin, currentY);
-        currentY += 15;
+        addSectionHeader("CERTIFICACIONES");
 
         cv.certifications.forEach((cert) => {
           if (currentY + 14 > pageHeight - margin) {
             doc.addPage();
-            currentY = margin;
+            currentY = margin + 10;
           }
           doc.setFont("helvetica", "normal");
-          doc.setFontSize(9);
-          doc.setTextColor(60, 60, 60);
-          doc.text(`• ${cert}`, margin + 10, currentY);
+          doc.setFontSize(9.5);
+          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+          
+          doc.setTextColor(colorMuted[0], colorMuted[1], colorMuted[2]);
+          doc.text("•", margin + 8, currentY);
+          doc.setTextColor(colorBody[0], colorBody[1], colorBody[2]);
+          
+          doc.text(cert, margin + 18, currentY);
           currentY += 13;
         });
       }
@@ -958,7 +1104,7 @@ export default function Home() {
                                   </span>
                                 </div>
                                 <div className="pl-4 space-y-1">
-                                  {exp.description.split("\n").filter(b => b.trim().length > 0).map((bullet, bIdx) => {
+                                  {(exp.bullets || []).map((bullet, bIdx) => {
                                     let cleanB = bullet.trim();
                                     if (cleanB.startsWith("-") || cleanB.startsWith("•") || cleanB.startsWith("*")) {
                                       cleanB = cleanB.substring(1).trim();
@@ -1038,9 +1184,19 @@ export default function Home() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs text-slate-800">
-                                  {proj.description}
-                                </p>
+                                <div className="pl-4 space-y-1">
+                                  {(proj.bullets || []).map((bullet, bIdx) => {
+                                    let cleanB = bullet.trim();
+                                    if (cleanB.startsWith("-") || cleanB.startsWith("•") || cleanB.startsWith("*")) {
+                                      cleanB = cleanB.substring(1).trim();
+                                    }
+                                    return (
+                                      <p key={bIdx} className="text-xs text-slate-800 list-item list-disc marker:text-slate-400">
+                                        {cleanB}
+                                      </p>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             ))}
                           </div>

@@ -38,24 +38,29 @@ export async function POST(req: NextRequest) {
       
       ${originalText ? `Texto original del CV:\n"""\n${originalText}\n"""` : ""}
 
-      Sigue rigurosamente las siguientes directrices y reglas de generación:
-      1. NO inventes experiencia laboral, empresas, cargos, títulos académicos, fechas, certificaciones ni ningún dato personal o profesional.
-      2. Si falta información en los datos originales, no te la inventes. Usa únicamente lo disponible.
-      3. Puedes mejorar la redacción, claridad, orden y estructura del texto. Convierte frases débiles en oraciones con verbos de acción fuertes y lenguaje profesional (ej. "Encargado de archivar" -> "Optimicé el sistema de archivado y organización documental").
-      4. Si sugieres métricas o logros cuantitativos, hazlo explícitamente indicando que es una sugerencia o plantilla (ej. "[Sugerencia: agregar % de incremento o cantidad lograda]"). No inventes números reales.
-      5. La estructura del CV optimizado debe ser limpia, en una sola columna, simple y 100% compatible con lectores ATS (Applicant Tracking Systems).
-      6. Toda la salida debe estructurarse según el esquema JSON solicitado. El idioma del CV mejorado y el diagnóstico debe coincidir con el idioma del CV original (si el original está en español, responde en español).
+      Sigue rigurosamente las siguientes directrices y reglas críticas de generación:
       
-      Genera el diagnóstico breve (puntuación del 1 al 100, lista de problemas detectados, secciones cruciales faltantes, y recomendaciones principales) junto con el CV optimizado con las siguientes secciones:
-      - Nombre
-      - Título profesional
-      - Contacto
-      - Resumen profesional (párrafo de 3 o 4 líneas potente)
-      - Experiencia laboral
-      - Educación
-      - Habilidades
-      - Proyectos (si existen en el original)
-      - Certificaciones (si existen en el original)`,
+      1. REGLAS DE ESTRUCTURA Y FORMATO:
+         - El CV optimizado debe ser limpio, en una sola columna, elegante y 100% compatible con lectores ATS.
+         - En la sección "experience", cada logro o función debe devolverse en el array "bullets" como un string independiente.
+         - En la sección "projects", cada detalle, contribución o logro debe devolverse en el array "bullets" como un string independiente.
+         - NUNCA unas las viñetas (bullets) usando guiones, puntos, ".-", " - " ni saltos de línea dentro de un mismo string. Cada logro va en su propio string dentro del array.
+
+      2. REGLAS CRÍTICAS DE NO CONTAMINACIÓN DEL CV MEJORADO (improvedCV):
+         - NUNCA pongas marcadores de posición (placeholders) como "[Agregar fecha]", "pendiente", "N/A", "compañía", "año", ni textos genéricos en el CV final.
+         - NUNCA incluyas comentarios de la IA, notas o textos de aclaración dentro de improvedCV.
+         - NUNCA incluyas textos entre corchetes como "[Sugerencia: añadir %]" o "[Sugerencia: ...]" en ninguna parte del improvedCV (ni en nombre, contacto, resumen, experiencia, educación, etc.).
+         - Las recomendaciones de añadir métricas, porcentajes, periodos de fechas o cualquier elemento que falte DEBEN ponerse ÚNICAMENTE en "recommendations" o "problems" de la diagnosis, NUNCA en el CV mejorado (improvedCV). El CV mejorado debe estar listo para enviarse a un reclutador sin requerir edición posterior.
+
+      3. REGLAS ESTRICTAS DE NO INVENCIÓN (PRESERVACIÓN DE LA VERDAD):
+         - NUNCA inventes: empresas, cargos, fechas, períodos de tiempo, métricas, porcentajes de mejora, resultados cuantitativos, instituciones educativas, títulos, certificaciones, correos, teléfonos, ciudades ni enlaces.
+         - Preserva de forma 100% íntegra todas las fechas, empresas, cargos, certificaciones y datos numéricos/métricas reales del CV original si están disponibles.
+         - Si un dato no existe en el original, NO te lo inventes y NO lo agregues en forma de placeholder. Simplemente omítelo o redáctalo limpiamente sin ese dato.
+         - Para CVs que ya son fuertes, pule la redacción y normaliza el formato; no realices reescrituras innecesariamente agresivas.
+         - Puedes mejorar: orden, claridad, redacción, jerarquía, tono profesional y los verbos de acción en las viñetas (ej. "Encargado de archivar" -> "Optimicé el sistema de archivado y organización documental"). Puedes construir un "summary" profesional potente si hay información suficiente en el original.
+
+      4. IDIOMA:
+         - El idioma de la respuesta completa (tanto diagnosis como improvedCV) debe ser idéntico al idioma predominante del CV original (si el original está en español, responde íntegramente en español).`,
     });
 
     // Define the models to try in case of transient errors, prioritizing the cheaper and highly reliable gemini-2.5-flash
@@ -96,7 +101,7 @@ export async function POST(req: NextRequest) {
                 recommendations: {
                   type: Type.ARRAY,
                   items: { type: Type.STRING },
-                  description: "Acciones recomendadas específicas para el candidato.",
+                  description: "Acciones recomendadas específicas para el candidato, tales como añadir métricas o datos faltantes.",
                 },
                 improvedCV: {
                   type: Type.OBJECT,
@@ -125,9 +130,13 @@ export async function POST(req: NextRequest) {
                           company: { type: Type.STRING, description: "Nombre de la empresa o institución." },
                           role: { type: Type.STRING, description: "Cargo desempeñado." },
                           period: { type: Type.STRING, description: "Periodo trabajado, ej: '2021 - Presente' o 'Ene 2019 - Dic 2020'." },
-                          description: { type: Type.STRING, description: "Logros y funciones principales en formato de viñetas claras (separadas por saltos de línea o usando guiones), redactadas con verbos de acción potentes." },
+                          bullets: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                            description: "Lista de logros y funciones desempeñadas, cada uno redactado como viñeta independiente en un string independiente del array (sin usar guiones ni puntos de inicio)."
+                          },
                         },
-                        required: ["company", "role", "period", "description"],
+                        required: ["company", "role", "period", "bullets"],
                       },
                     },
                     education: {
@@ -154,10 +163,14 @@ export async function POST(req: NextRequest) {
                         type: Type.OBJECT,
                         properties: {
                           name: { type: Type.STRING, description: "Nombre del proyecto." },
-                          description: { type: Type.STRING, description: "Descripción breve del proyecto y tecnologías utilizadas." },
+                          bullets: {
+                            type: Type.ARRAY,
+                            items: { type: Type.STRING },
+                            description: "Lista de logros, tecnologías y descripciones del proyecto, cada uno redactado como viñeta independiente en un string independiente."
+                          },
                           period: { type: Type.STRING, description: "Periodo u año de realización." },
                         },
-                        required: ["name", "description"],
+                        required: ["name", "bullets"],
                       },
                       description: "Proyectos relevantes si aparecían en el original.",
                     },
